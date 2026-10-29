@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-CN"><head>
+<!DOCTYPE html><!-- 改动摘要：导览按钮、风格遮罩、目录抽屉、字幕/进度点、海报复制链接；户型切换改为整页跳转以丢掉旧 hash。天气行在时间滑杆下方。 --><html lang="zh-CN"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>73㎡，第二间房应该留给谁？</title>
@@ -15,6 +15,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=&#39;http://www.w3.org/2000/svg&#39; viewBox=&#39;0 0 16 16&#39;%3E%3Crect width=&#39;16&#39; height=&#39;16&#39; rx=&#39;3&#39; fill=&#39;%23333&#39;/%3E%3C/svg%3E"/></head>
 <body>
 <div id="stage"></div>
+<div id="styleVeil" aria-hidden="true"></div>
 <div id="loading">正在打开这个家…</div>
 
 <!-- WebGL 不可用时的静态兜底 -->
@@ -46,13 +47,14 @@
     <h1>73㎡，第二间房应该留给谁？</h1>
     <p>同一个家，三种生活答案</p>
     <nav id="planBar">
-      <button class="plan on" data-p="p73" onclick="location.search='?plan=p73'">73㎡ 两居</button>
-      <button class="plan" data-p="p45" onclick="location.search='?plan=p45'">45㎡ 一居</button>
-      <button class="plan" data-p="p96" onclick="location.search='?plan=p96'">96㎡ 三居</button>
+      <button class="plan on" data-p="p73" onclick="location.href='?plan=p73'">73㎡ 两居</button>
+      <button class="plan" data-p="p45" onclick="location.href='?plan=p45'">45㎡ 一居</button>
+      <button class="plan" data-p="p96" onclick="location.href='?plan=p96'">96㎡ 三居</button>
     </nav>
   </div>
   <div class="hud-actions">
     <button id="arrangeBtn">布置家具</button>
+    <button id="tourBtn">导览</button>
     <button id="listBtn">软装清单</button>
     <button id="shareBtn">分享方案</button>
     <button id="moreBtn" aria-label="更多">⋯ 更多</button>
@@ -61,11 +63,20 @@
 
 <!-- 布置模式工具栏 -->
 <div id="arrangeBar">
-  <span class="hint">拖拽移动 · 点击选中 · R 旋转 45°</span>
+  <span class="hint" id="arrangeHint">拖拽移动 · 点击选中 · R 旋转 · Delete 删除</span>
   <button id="rotBtn">旋转</button>
+  <button id="delBtn" class="ghost">删除</button>
   <button id="arrangeReset" class="ghost">重置布置</button>
   <button id="arrangeDone">完成</button>
 </div>
+
+<!-- 布置模式：左侧家具目录 -->
+<aside id="catalogPanel">
+  <p class="ls-kicker">家具目录</p>
+  <h2>添一件</h2>
+  <div id="catalogList"></div>
+  <p class="cat-tip">点选家具，再在地面落下 · ESC 取消</p>
+</aside>
 
 <!-- 风格切换 -->
 <nav id="styleBar">
@@ -94,8 +105,10 @@
     <img id="posterImg" alt="方案分享海报"/>
     <div class="poster-actions">
       <button id="posterDownload">保存海报</button>
+      <button id="posterCopy">复制方案链接</button>
       <button id="posterClose" class="ghost">关闭</button>
     </div>
+    <p id="posterCopied">完整方案链接已复制到剪贴板</p>
   </div>
 </div>
 
@@ -137,6 +150,10 @@
   <p class="rc-furn" id="rcFurn"></p>
 </aside>
 
+<!-- 电影感导览：进度点 + 字幕 -->
+<div id="tourDots" aria-hidden="true"></div>
+<div id="tourCaption" aria-hidden="true"></div>
+
 <!-- 问题 + 三种生活 + 时间 -->
 <div id="question">第二间房，你会留给谁？</div>
 <div id="modeBar">
@@ -153,6 +170,12 @@
       <input type="range" id="timeSlider" min="8" max="95" value="45"/>
       <span class="ticks">上午 · 下午 · 夜晚</span>
     </div>
+  </div>
+  <div id="weatherSeg" role="group" aria-label="天气">
+    <button type="button" data-w="clear" class="on" aria-pressed="true">晴</button>
+    <button type="button" data-w="overcast" aria-pressed="false">阴</button>
+    <button type="button" data-w="rain" aria-pressed="false">雨</button>
+    <button type="button" data-w="snow" aria-pressed="false">雪</button>
   </div>
 </div>
 <div id="chosenBadge"></div>

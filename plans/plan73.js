@@ -3,6 +3,8 @@
  * 空间数据在 ../floorplan-data.js；此处提供布置逻辑与视角/文案配置。
  * furnish(api) 约定：api = { THREE, F, put, tagUsage, makeRug, shared, styleTargets }
  * 返回 { modeGroups, modeFocus }
+ * 改动摘要：新增 tour（玄关→客厅→餐厅→主卧→次卧）。
+ * 机位在各自房间投影内、墙顶 2.8m 之上，镜头之间的直线飞行不穿墙。
  * ===================================================================== */
 import { PLAN, WALLS, DOORS, ROOMS, MODES } from '../floorplan-data.js';
 import { FURNISH_LIST } from '../styles-data.js';
@@ -287,4 +289,13 @@ export default {
 
     return { modeGroups, modeFocus };
   },
+
+  /* 电影感导览。y ≥ 4.4，高于层高 2.8；pos/tgt 的 xz 都落在同一房间内。 */
+  tour: [
+    { pos: [5.92, 4.40, 5.60], tgt: [6.05, 0.70, 7.35], dur: 2.1, caption: '玄关' },
+    { pos: [3.80, 4.80, 7.20], tgt: [1.60, 0.50, 5.95], dur: 1.8, caption: '客厅' },
+    { pos: [1.30, 4.60, 4.55], tgt: [3.30, 0.70, 4.00], dur: 1.9, caption: '餐厅' },
+    { pos: [7.30, 4.50, 3.20], tgt: [8.70, 0.55, 1.60], dur: 2.0, caption: '主卧' },
+    { pos: [7.30, 4.60, 7.20], tgt: [8.60, 0.55, 5.60], dur: 1.8, caption: '次卧' },
+  ],
 };

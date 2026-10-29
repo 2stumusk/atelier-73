@@ -1,4 +1,5 @@
-/* styles.css — 建筑作品集式 UI：暖白半透明、细边框、轻微模糊 */
+/* styles.css — 建筑作品集式 UI：暖白半透明、细边框、轻微模糊
+ * 改动摘要：风格遮罩、导览字幕/进度点、左侧家具目录、海报复制反馈。天气行抬高了模式条。 */
 :root {
   --bg: #F2F0EB;
   --ink: #3A352E;
@@ -95,7 +96,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   font-size: 20px; color: var(--ink-soft); cursor: pointer; }
 
 /* ---------- 问题 + 模式条 ---------- */
-#question { position: fixed; left: 50%; bottom: 212px; transform: translateX(-50%) translateY(8px); z-index: 12;
+#question { position: fixed; left: 50%; bottom: 272px; transform: translateX(-50%) translateY(8px); z-index: 12;
   font-family: var(--serif); font-size: clamp(17px, 2.4vw, 24px); letter-spacing: 0.12em;
   text-shadow: 0 2px 18px rgba(242, 240, 235, 0.9); opacity: 0; transition: all 0.9s ease 0.3s; }
 #question.show { opacity: 1; transform: translateX(-50%); }
@@ -120,7 +121,18 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 #timeSlider { width: 100%; accent-color: var(--oak); }
 .time .ticks { grid-column: 2; font-size: 10px; color: var(--ink-soft); display: flex; justify-content: space-between; letter-spacing: 0.2em; }
 
-#chosenBadge { position: fixed; left: 50%; bottom: 212px; transform: translateX(-50%); z-index: 11;
+/* 天气：对齐 .modes .mode。选中态走 --sage，风格切换时一起变。 */
+#weatherSeg { display: flex; gap: 6px; justify-content: center; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--line); }
+#weatherSeg button { flex: 1; padding: 7px 0; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; font-family: var(--serif); font-size: 14px; letter-spacing: 0.28em;
+  text-indent: 0.28em; color: var(--ink-soft); cursor: pointer; transition: all 0.25s; }
+#weatherSeg button:hover { color: var(--ink); border-color: var(--ink-soft); }
+#weatherSeg button.on { background: var(--sage); border-color: var(--sage); color: #F7F5EF; }
+#weatherSeg button.on:hover { color: #F7F5EF; }
+#weatherSeg button:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+
+#chosenBadge { position: fixed; left: 50%; bottom: 272px; transform: translateX(-50%); z-index: 11;
   padding: 8px 22px; border-radius: 999px; background: rgba(126, 141, 122, 0.92); color: #F7F5EF;
   font-family: var(--serif); font-size: 14px; letter-spacing: 0.15em;
   opacity: 0; visibility: hidden; transition: all 0.5s ease; }
@@ -149,7 +161,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   #viewSeg button { padding: 6px 12px; font-size: 12px; }
   #modeBar { bottom: 14px; padding: 12px 14px 10px; }
   #modeBar .row { flex-direction: column; align-items: stretch; gap: 8px; }
-  #question { bottom: 236px; width: 90vw; text-align: center; }
+  #question, #chosenBadge { bottom: 308px; }
+  #question { width: 90vw; text-align: center; }
+  #weatherSeg { margin-top: 8px; padding-top: 8px; }
+  #weatherSeg button { font-size: 13px; letter-spacing: 0.18em; text-indent: 0.18em; padding: 6px 0; }
   #roomCard { right: 12px; width: 210px; }
   #morePanel { right: 12px; }
 }
@@ -299,4 +314,62 @@ body.no-modes #question { display: none; }
   #planBar .plan { font-size: 11px; }
   #arrangeBar { left: 12px; bottom: auto; top: 108px; padding-left: 12px; }
   #arrangeBar .hint { display: none; }
+}
+
+/* =====================================================================
+ * F1 风格遮罩 / F2 导览 / F3 目录 / F4 海报复制
+ * ===================================================================== */
+
+/* 纹理换图时盖住画布。透明度由 main.js 驱动：先实盖再 0.45s 淡出。 */
+#styleVeil { position: fixed; inset: 0; z-index: 7; pointer-events: none; opacity: 0; background: var(--bg); }
+
+/* 导览字幕：对齐 #question 的字号、字距与底部位置 */
+#tourCaption { position: fixed; left: 50%; bottom: 272px; transform: translateX(-50%) translateY(8px); z-index: 15;
+  font-family: var(--serif); font-size: clamp(18px, 2.6vw, 28px); letter-spacing: 0.28em;
+  text-shadow: 0 2px 18px rgba(242, 240, 235, 0.92); opacity: 0; pointer-events: none;
+  transition: opacity 0.45s ease, transform 0.45s ease; white-space: nowrap; }
+#tourCaption.show { opacity: 1; transform: translateX(-50%); }
+#tourDots { position: fixed; top: 92px; left: 50%; transform: translateX(-50%); z-index: 15;
+  display: none; gap: 8px; align-items: center; pointer-events: none; }
+body.touring #tourDots { display: flex; }
+#tourDots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(58, 53, 46, 0.28); display: block;
+  transition: transform 0.25s ease, background 0.25s ease; }
+#tourDots i.on { background: var(--ink); transform: scale(1.4); }
+#tourDots i.done { background: var(--sage); }
+body.touring #question,
+body.touring #chosenBadge { opacity: 0; }
+body.touring #stage canvas { cursor: default; }
+
+/* 家具目录：左侧玻璃抽屉，仅布置模式出现 */
+#catalogPanel { position: fixed; top: 74px; left: 16px; bottom: 228px; z-index: 15;
+  width: min(248px, 78vw); padding: 22px 16px 16px; overflow: auto;
+  background: rgba(252, 250, 245, 0.94); backdrop-filter: blur(14px);
+  border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(58, 53, 46, 0.14);
+  transform: translateX(calc(-100% - 28px)); visibility: hidden; pointer-events: none;
+  transition: transform 0.38s cubic-bezier(0.32, 0.72, 0.28, 1), visibility 0.38s; }
+body.arranging #catalogPanel { transform: none; visibility: visible; pointer-events: auto; }
+body.roaming #catalogPanel,
+body.touring #catalogPanel { display: none; }
+#catalogPanel h2 { font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: 0.06em; margin-bottom: 12px; }
+.cat-item { display: flex; width: 100%; text-align: left; margin-bottom: 6px; padding: 9px 12px;
+  border-radius: 10px; border: 1px solid var(--line); background: transparent;
+  font-family: var(--serif); font-size: 14px; letter-spacing: 0.08em; color: var(--ink); cursor: pointer; }
+.cat-item:hover { border-color: var(--ink-soft); background: rgba(126, 141, 122, 0.08); }
+.cat-item.on { background: var(--sage); border-color: var(--sage); color: #F7F5EF; }
+.cat-tip { margin-top: 12px; font-size: 11px; line-height: 1.7; color: var(--ink-soft); letter-spacing: 0.04em; }
+body.arranging #arrangeBar { z-index: 17; }
+body.placing #stage canvas { cursor: crosshair; }
+
+#posterCopy { border: none; background: var(--sage); color: #F7F5EF; }
+#posterCopy:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(58, 53, 46, 0.18); }
+#posterCopied { font-size: 12px; letter-spacing: 0.12em; color: var(--sage); min-height: 1em;
+  opacity: 0; transition: opacity 0.3s ease; }
+#posterCopied.show { opacity: 1; }
+
+@media (max-width: 720px) {
+  #tourCaption { bottom: 320px; width: 92vw; text-align: center; white-space: normal; }
+  #tourDots { top: 168px; }
+  #catalogPanel { top: 156px; bottom: auto; max-height: 46vh; left: 10px; width: min(230px, 86vw); }
+  .poster-actions { flex-wrap: wrap; justify-content: center; }
 }

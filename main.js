@@ -1,6 +1,12 @@
 /* =====================================================================
  * main.js — 「73㎡，第二间房应该留给谁？」3D 交互式 Showcase
  * 同一个家，三种生活答案。
+ * 改动摘要：
+ *   F1 applyStyleSmooth — 0.8s 颜色插值，纹理换图用遮罩盖住；applyStyle 仍是瞬时版
+ *   F2 导览播放（tour.js）+ 退出即恢复控件
+ *   F3 家具目录拖放、删除、布局快照（兼容老的平铺 map）
+ *   F4 #s= base64url 分享链接，加载时覆盖布局并还原风格/模式
+ *   天气：applyTime 末尾交给 weatherAdjust；主循环 updateWeather
  * ===================================================================== */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -9,11 +15,24 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PALETTE } from './floorplan-data.js';
 import { STYLES, resolveSpec } from './styles-data.js';
-import { pickPlan } from './plans/index.js';
+import { pickPlan, PLANS } from './plans/index.js';
 import { drawPlan2D } from './plans/plan-image.js';
+import { decodeShare, encodeShare, normalizeLayout } from './share.js';
+import { createTour } from './tour.js';
+import { catalogEntries, isCatalogType, createPiece, makeGhost, disposeGhost, paintGhost } from './catalog.js';
+import { initWeather, setWeather, updateWeather, weatherAdjust, WEATHER_KEY } from './weather.js';
 
 /* ---------- 户型配置（?plan=p73|p45|p96，缺省 p73） ---------- */
 const config = pickPlan();
+/* 分享链接里的户型与当前不一致：整页跳到对应户型，hash 原样带上。
+ * await 挂起本模块，避免先把错误户型建出来。 */
+const shareState = decodeShare(location.hash);
+if (shareState && shareState.p !== config.id && PLANS.some(p => p.id === shareState.p)) {
+  const u = new URL(location.href);
+  u.searchParams.set('plan', shareState.p);
+  location.replace(u.pathname + u.search + location.hash);
+  await new Promise(() => {});
+}
 const { PLAN, WALLS, DOORS, ROOMS, MODES } = config;
 const planCanvas = config.planImage ? null : drawPlan2D(config);
 import { makeWoodFloor, makeTileFloor, makeWallTex, makeFabric, makeRug, makeContactShadow } from './textures.js';
@@ -463,6 +482,7 @@ function applyTime(t) {
     b.material.emissive.set(0xFFC98A);
     b.material.emissiveIntensity = lampOn * 1.6;
   }
+  weatherAdjust({ sun, hemi, scene, t });
 }
 
 /* =====================================================================
@@ -610,6 +630,8 @@ function setWallShadows(on) {
 }
 
 function setViewMode(mode) {
+  /* 导览中切视图 = 退出导览。start() 在把 active 置位之前切回 dollhouse，不会走到这里。 */
+  if (isTouring()) tourCtrl.stop();
   const prev = viewMode;
   // 进入漫游：保存当前视图模式与机位（top 是正交相机，只记模式）+ 强制收起面板（退出时恢复）
   if (mode === 'interior' && prev !== 'interior') {
@@ -659,6 +681,7 @@ function setViewMode(mode) {
   }
   else if (mode === 'top') { fitTopCamera(); }                     // 漫游 → 俯视：正交相机，不带漫游位置
   else if (mode === 'interior') {
+    if (placing) cancelPlace();
     if (camera.fov !== 40) { camera.fov = 40; camera.updateProjectionMatrix(); }   // 漫游固定标准 FOV
     const p = CAMERA_PRESETS.roamStartCamera;
     const [sx, sz] = findFreeSpawn(p.pos[0], p.pos[2]);            // 出生点校验，被占则螺旋找最近可通行点
@@ -840,7 +863,7 @@ function pick(ev) {
 }
 
 renderer.domElement.addEventListener('pointermove', ev => {
-  if (viewMode === 'interior' || dragLook || arranging) return;
+  if (viewMode === 'interior' || dragLook || arranging || isTouring()) return;
   const hit = pick(ev);
   hoveredRoom = hit && hit.type === 'room' ? hit.obj.userData.room.id : null;
   renderer.domElement.style.cursor =
@@ -856,8 +879,10 @@ renderer.domElement.addEventListener('pointerup', ev => {
   if (!downAt) return;
   const moved = Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]);
   downAt = null;
+  if (swallowClick) { swallowClick = false; return; }
   if (moved > 6) return;
-  if (arranging) return;                  // 布置模式下不触发房间/门窗交互
+  if (placing) { commitPlace(); return; }
+  if (arranging || isTouring()) return;   // 布置 / 导览中不触发房间/门窗交互
   const hit = pick(ev);
   if (viewMode === 'interior') {          // 漫游中：仅响应门开关，不触发房间选择/窗高亮
     if (hit && hit.type === 'door') toggleDoor(hit.obj);
@@ -935,6 +960,12 @@ timeSlider.oninput = () => {
   applyTime(t);
   timeLabel.textContent = t < 0.35 ? '上午' : t < 0.68 ? '下午' : '夜晚';
 };
+document.querySelectorAll('#weatherSeg button').forEach(b => {
+  b.onclick = () => {
+    setWeather(b.dataset.w);
+    applyTime(timeOfDay);
+  };
+});
 
 /* 生活状态切换 */
 let currentMode = null;
@@ -1061,49 +1092,165 @@ function tintGLBMaterials(fm) {
   });
 }
 
-function applyStyle(id) {
-  const s = STYLES.find(q => q.id === id);
-  if (!s || s === currentStyle) return;
-  currentStyle = s;
+const MAT_COLOR_KEYS = ['ceiling', 'roof', 'skirt', 'sill', 'ground', 'doorPanel', 'frame'];
+const FURN_COLOR_KEYS = ['oak', 'oakDark', 'walnut', 'lacquer', 'stone', 'metal', 'metalSoft',
+  'sage', 'bedding', 'blanket', 'plant', 'pot', 'paper'];
+const RUG_COLOR_KEYS = ['entryMat', 'rugPrimary', 'rugWork', 'rugGuest', 'rugFuture'];
+const STYLE_DUR = 0.8;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* 风格渐变：slots 从「当前颜色」插到目标。连点时丢掉旧槽，按此刻中间值重抓。 */
+const styleAnim = { active: false, t: 0, slots: [], css: null, toStyle: null };
+let veilToken = 0;
+
+function swapStyleTextures(s) {
   const sc = s.scene;
-  PALETTE.bg = sc.bg;
-  nightBg = sc.nightBg;
+  const fm = sc.furniture;
   swapTexture(MAT.floorWood, makeWoodFloor(sc.woodFloor));
   swapTexture(MAT.floorTile, makeTileFloor(sc.tileFloor));
   swapTexture(MAT.wall, makeWallTex(sc.wall));
   swapTexture(MAT.wallExt, makeWallTex(sc.wallExt));
-  MAT.ceiling.color.set(sc.ceiling);
-  MAT.roof.color.set(sc.roof);
-  MAT.skirt.color.set(sc.skirt);
-  MAT.sill.color.set(sc.sill);
-  MAT.ground.color.set(sc.ground);
-  MAT.doorPanel.color.set(sc.doorPanel);
-  MAT.frame.color.set(sc.frame);
-  const fm = sc.furniture;   // 程序化家具共享材质
-  F.MAT.oak.color.set(fm.oak); F.MAT.oakDark.color.set(fm.oakDark);
-  F.MAT.walnut.color.set(fm.walnut); F.MAT.lacquer.color.set(fm.lacquer);
-  F.MAT.stone.color.set(fm.stone); F.MAT.metal.color.set(fm.metal);
-  F.MAT.metalSoft.color.set(fm.metalSoft); F.MAT.sage.color.set(fm.sage);
-  F.MAT.bedding.color.set(fm.bedding); F.MAT.blanket.color.set(fm.blanket);
-  F.MAT.plant.color.set(fm.plant); F.MAT.pot.color.set(fm.pot);
-  F.MAT.paper.color.set(fm.paper);
   swapTexture(F.MAT.linen, makeFabric(fm.linen));
-  tintGLBMaterials(fm);
   if (styleTargets.rugLiving) swapTexture(styleTargets.rugLiving, makeRug(sc.rugLiving.base, sc.rugLiving.border));
-  if (styleTargets.entryMat) styleTargets.entryMat.color.set(sc.entryMat);
-  if (styleTargets.rugPrimary) styleTargets.rugPrimary.color.set(sc.rugPrimary);
-  if (styleTargets.rugWork) styleTargets.rugWork.color.set(sc.rugWork);
-  if (styleTargets.rugGuest) styleTargets.rugGuest.color.set(sc.rugGuest);
-  if (styleTargets.rugFuture) styleTargets.rugFuture.color.set(sc.rugFuture);
-  document.documentElement.style.setProperty('--sage', s.ui.accent);
-  document.documentElement.style.setProperty('--bg', s.ui.bg);
-  document.querySelectorAll('#styleBar .style').forEach(b => b.classList.toggle('on', b.dataset.s === id));
+}
+
+/* 换图无法插值：先把遮罩实盖到 0.85（同一帧完成换图，用户看不到硬跳），再 0.45s 淡出。
+ * 连点会作废上一次的淡出，重新盖住。 */
+function coverTextureSwap(bg, swapFn) {
+  const v = $('styleVeil');
+  if (!v) { swapFn(); return; }
+  const token = ++veilToken;
+  v.style.transition = 'none';
+  v.style.background = bg || '#F2F0EB';
+  v.style.opacity = '0.85';
+  void v.offsetWidth;
+  swapFn();
+  requestAnimationFrame(() => {
+    if (token !== veilToken) return;
+    v.style.transition = 'opacity 0.45s ease';
+    v.style.opacity = '0';
+  });
+}
+
+function captureStyleSlots(s) {
+  const sc = s.scene;
+  const fm = sc.furniture;
+  const seen = new Set();
+  const slots = [];
+  const add = (mat, hex) => {
+    if (!mat || !mat.color || hex === undefined || hex === null) return;
+    if (seen.has(mat.uuid)) return;
+    seen.add(mat.uuid);
+    slots.push({ target: mat.color, from: mat.color.clone(), to: new THREE.Color(hex) });
+  };
+  for (const k of MAT_COLOR_KEYS) add(MAT[k], sc[k]);
+  for (const k of FURN_COLOR_KEYS) add(F.MAT[k], fm[k]);
+  for (const k of RUG_COLOR_KEYS) if (styleTargets[k]) add(styleTargets[k], sc[k]);
+  scene.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (m && m.name && TINT_KEYS.includes(m.name) && fm[m.name] !== undefined) add(m, fm[m.name]);
+    }
+  });
+  return slots;
+}
+
+function paintStyleUi(s) {
+  document.querySelectorAll('#styleBar .style').forEach(b => b.classList.toggle('on', b.dataset.s === s.id));
   $('styleDesc').textContent = s.desc;
-  applyTime(timeOfDay);
   renderList();
 }
 
-document.querySelectorAll('#styleBar .style').forEach(b => b.onclick = () => applyStyle(b.dataset.s));
+function applyStyleColorsNow(s) {
+  const sc = s.scene;
+  const fm = sc.furniture;
+  for (const k of MAT_COLOR_KEYS) MAT[k].color.set(sc[k]);
+  for (const k of FURN_COLOR_KEYS) F.MAT[k].color.set(fm[k]);
+  tintGLBMaterials(fm);
+  for (const k of RUG_COLOR_KEYS) if (styleTargets[k]) styleTargets[k].color.set(sc[k]);
+  PALETTE.bg = sc.bg;
+  nightBg = sc.nightBg;
+  document.documentElement.style.setProperty('--sage', s.ui.accent);
+  document.documentElement.style.setProperty('--bg', s.ui.bg);
+}
+
+/* 瞬时换装：初始化、减少动效、以及外部直接调用。过渡中调用会取消插值。 */
+function applyStyle(id) {
+  const s = STYLES.find(q => q.id === id);
+  if (!s || s === currentStyle) return;
+  styleAnim.active = false;
+  currentStyle = s;
+  swapStyleTextures(s);
+  applyStyleColorsNow(s);
+  paintStyleUi(s);
+  applyTime(timeOfDay);
+}
+
+/* 当前机位沿视线收回 4%（距离变为 96%）。只动透视相机；正交俯视 flyTo 会把画面平移。 */
+function nudgeStyleCamera() {
+  if (viewMode !== 'dollhouse' && viewMode !== 'section') return;
+  if (tourCtrl && tourCtrl.isActive()) return;
+  const tgt = controls.target.clone();
+  const pos = camera.position.clone().sub(tgt).multiplyScalar(0.96).add(tgt);
+  flyTo([pos.x, pos.y, pos.z], [tgt.x, tgt.y, tgt.z], STYLE_DUR);
+}
+
+function applyStyleSmooth(id) {
+  if (reduceMotion) { applyStyle(id); return; }
+  const s = STYLES.find(q => q.id === id);
+  if (!s || s === currentStyle) return;
+  const veilBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || s.ui.bg;
+  const slots = captureStyleSlots(s);
+  const css = {
+    accentFrom: getComputedStyle(document.documentElement).getPropertyValue('--sage').trim() || '#7E8D7A',
+    accentTo: s.ui.accent,
+    bgFrom: veilBg,
+    bgTo: s.ui.bg,
+  };
+  const paletteFrom = { bg: new THREE.Color(PALETTE.bg), night: new THREE.Color(nightBg) };
+  const paletteTo = { bg: new THREE.Color(s.scene.bg), night: new THREE.Color(s.scene.nightBg) };
+  coverTextureSwap(veilBg, () => swapStyleTextures(s));
+  currentStyle = s;
+  paintStyleUi(s);
+  styleAnim.slots = slots;
+  styleAnim.css = css;
+  styleAnim.paletteFrom = paletteFrom;
+  styleAnim.paletteTo = paletteTo;
+  styleAnim.toStyle = s;
+  styleAnim.t = 0;
+  styleAnim.active = true;
+  nudgeStyleCamera();
+}
+
+function cssMix(a, b, t) {
+  const ca = new THREE.Color(a);
+  const cb = new THREE.Color(b);
+  ca.lerp(cb, t);
+  return '#' + ca.getHexString();
+}
+
+function updateStyleAnim(dt) {
+  if (!styleAnim.active) return;
+  styleAnim.t += dt / STYLE_DUR;
+  const k = Math.min(styleAnim.t, 1);
+  const e = k * k * (3 - 2 * k);
+  for (const slot of styleAnim.slots) slot.target.lerpColors(slot.from, slot.to, e);
+  const bg = styleAnim.paletteFrom.bg.clone().lerp(styleAnim.paletteTo.bg, e);
+  const night = styleAnim.paletteFrom.night.clone().lerp(styleAnim.paletteTo.night, e);
+  PALETTE.bg = bg.getHex();
+  nightBg = night.getHex();
+  const css = styleAnim.css;
+  document.documentElement.style.setProperty('--sage', cssMix(css.accentFrom, css.accentTo, e));
+  document.documentElement.style.setProperty('--bg', cssMix(css.bgFrom, css.bgTo, e));
+  applyTime(timeOfDay);
+  if (k >= 1) {
+    styleAnim.active = false;
+    applyStyleColorsNow(styleAnim.toStyle);
+    applyTime(timeOfDay);
+  }
+}
+
+document.querySelectorAll('#styleBar .style').forEach(b => b.onclick = () => applyStyleSmooth(b.dataset.s));
 
 /* ---------- 软装清单 ---------- */
 const fmtPrice = (n) => '¥' + n.toLocaleString('zh-CN');
@@ -1193,7 +1340,10 @@ function makePoster() {
   ctx.beginPath(); ctx.moveTo(W / 2 - 60, 1300); ctx.lineTo(W / 2 + 60, 1300); ctx.stroke();
   ctx.fillStyle = '#6B655A';
   ctx.font = '22px system-ui, sans-serif';
-  ctx.fillText(`ATELIER ${config.area} · ${config.sub}`, W / 2, 1348);
+  ctx.fillText(`ATELIER ${config.area} · ${config.sub}`, W / 2, 1324);
+  ctx.font = '16px system-ui, sans-serif';
+  ctx.fillText('2stumusk.github.io/atelier-73  ·  链接已复制', W / 2, 1372);
+  copyShareLink(null);
   posterURL = c.toDataURL('image/png');
   $('posterImg').src = posterURL;
   $('posterModal').classList.add('show');
@@ -1284,6 +1434,7 @@ function finishIntro() {
  * ===================================================================== */
 const clk = { last: performance.now(), getDelta() { const n = performance.now(); const d = (n - this.last) / 1000; this.last = n; return d; } };
 let elapsed = 0;
+let tourCtrl = null;   // createTour 在文件末尾装配，主循环里只在已创建后推进
 window.__render = () => renderer.render(scene, getActiveCamera());
 
 function animate() {
@@ -1294,7 +1445,7 @@ function animate() {
     introT = Math.min(introT + dt / INTRO_DUR, 1);
     applyIntro(introT);
   }
-  // 相机补间
+  // 相机补间（导览与风格推进共用）
   if (camTween.active) {
     camTween.t += dt / camTween.dur;
     const k = camTween.t >= 1 ? 1 : 1 - Math.pow(1 - camTween.t, 3);
@@ -1303,7 +1454,12 @@ function animate() {
     const nf = camTween.fromF + (camTween.toF - camTween.fromF) * k;      // FOV 随飞行平滑变焦
     if (Math.abs(camera.fov - nf) > 1e-3) { camera.fov = nf; camera.updateProjectionMatrix(); }
     if (camTween.t >= 1) camTween.active = false;
+    /* 导览关掉了 OrbitControls，补间期间要自己对准目标，否则机位在飞、朝向不动 */
+    if (!controls.enabled && viewMode !== 'top') getActiveCamera().lookAt(controls.target);
   }
+  updateStyleAnim(dt);
+  updateWeather(dt);
+  if (tourCtrl) tourCtrl.update(dt);
   // 门扇平滑开合（绕铰链轴）
   for (const p of doorPivots) {
     const u = p.userData;
@@ -1565,6 +1721,7 @@ async function swapInGLBAssets() {
   const b1 = new THREE.Box3(), b2 = new THREE.Box3();
   const m3 = new THREE.Matrix3();
   const swapOne = (group, src) => {
+    if (!group.parent) return;                 // 目录件在 GLB 回来之前被删掉
     group.updateWorldMatrix(true, true);
     b1.setFromObject(group);                       // 程序化包围盒（世界系）
     if (b1.isEmpty()) return;
@@ -1664,20 +1821,31 @@ async function swapInGLBAssets() {
 }
 
 /* =====================================================================
- * 家具自主布置：布置模式下拖拽移动 / R 键旋转 / 碰撞约束 / localStorage 持久化
+ * 家具自主布置：拖拽 / 旋转 / 删除 / 目录新增 / localStorage
+ * 快照结构 { moved, added, removedKeys }。老数据是平铺 map，按 moved 读。
  * ===================================================================== */
 const LAYOUT_KEY = 'atelier.layout.' + config.id;
-const draggables = [];          // { root, key, r, def: [x, z, ry] }
+const draggables = [];          // { root, key, r, def:[x,z,ry], added, type, removed }
 let arranging = false, dragItem = null, dragGrab = null, selectedItem = null;
+let placing = null;             // { type, ghost, r, ry, x, z, valid }
+let swallowClick = false;      // 退出导览的那一下点击不再选房间
 let staticBoxes = [];           // 厨房/卫生间固定柜体 AABB（不可拖动，仅作碰撞）
 
+function isTouring() { return !!(tourCtrl && tourCtrl.isActive()); }
 function isVisibleUp(o) { while (o) { if (!o.visible) return false; o = o.parent; } return true; }
+
+function pieceRadius(g) {
+  const tmp = new THREE.Box3().setFromObject(g);
+  if (tmp.isEmpty()) return 0.3;
+  const w = tmp.max.x - tmp.min.x, d = tmp.max.z - tmp.min.z;
+  return Math.max(0.18, Math.min(w, d) / 2 + 0.03);
+}
 
 function collectDraggables() {
   draggables.length = 0;
   const roots = [];
   for (const ch of shared.children) {
-    if (ch.userData.cs) continue;
+    if (ch.userData.cs || ch.userData.catalog) continue;
     if (ch.isGroup && ch.name && ch.name !== 'kitchen' && ch.name !== 'bath') roots.push(ch);
   }
   for (const k of Object.keys(modeGroups))
@@ -1694,6 +1862,7 @@ function collectDraggables() {
       root: g, key: `${parentKey}:${g.name}:${idx}`,
       r: Math.max(0.18, Math.min(w, d) / 2 + 0.03),
       def: [g.position.x, g.position.z, g.rotation.y],
+      added: false, type: null, removed: false,
     });
   }
   // 固定柜体碰撞盒：厨房 / 卫生间容器
@@ -1706,26 +1875,104 @@ function collectDraggables() {
   }
 }
 
-function layoutSave() {
-  const data = {};
+function allocCatalogKey(type, preferred) {
+  const used = new Set(draggables.map(d => d.key));
+  if (preferred && !used.has(preferred)) return preferred;
+  let n = 1, key = `catalog:${type}:${n}`;
+  while (used.has(key)) { n += 1; key = `catalog:${type}:${n}`; }
+  return key;
+}
+
+/* 落地灯灯罩要进自发光表，夜晚才会亮。GLB 换完会整表重扫，这里多记一次无害。 */
+function noteLamps(root) {
+  root.traverse(o => {
+    if (!o.isMesh || (o.name !== 'lampShade' && o.name !== 'pendantShade')) return;
+    if (bulbMeshes.includes(o)) return;
+    if (o.material) o.material = o.material.clone();
+    bulbMeshes.push(o);
+  });
+}
+function forgetLamps(root) {
+  const drop = new Set();
+  root.traverse(o => drop.add(o));
+  for (let i = bulbMeshes.length - 1; i >= 0; i--) if (drop.has(bulbMeshes[i])) bulbMeshes.splice(i, 1);
+}
+
+/* 目录家具进 shared，启动后的 GLB 扫描会按组名换上已有模型。几何先不销毁：GLB 与程序化网格可能共享。 */
+function attachCatalog(type, x, z, ry, preferredKey) {
+  const g = createPiece(F, type);
+  if (!g) return null;
+  g.position.set(x, g.userData.floorY || 0, z);
+  g.rotation.y = ry || 0;
+  shared.add(g);
+  noteLamps(g);
+  const item = {
+    root: g, key: allocCatalogKey(type, preferredKey), r: pieceRadius(g),
+    def: [x, z, ry || 0], added: true, type, removed: false,
+  };
+  draggables.push(item);
+  return item;
+}
+
+function layoutSnapshot() {
+  const moved = {}, added = [], removedKeys = [];
   for (const d of draggables) {
+    if (d.removed) { if (!d.added) removedKeys.push(d.key); continue; }
     const g = d.root;
     const cur = [+g.position.x.toFixed(3), +g.position.z.toFixed(3), +g.rotation.y.toFixed(4)];
-    if (cur[0] !== d.def[0] || cur[1] !== d.def[1] || cur[2] !== d.def[2]) data[d.key] = cur;
+    if (d.added) added.push({ type: d.type, x: cur[0], z: cur[1], ry: cur[2], key: d.key });
+    /* def 里的旋转常是 Math.PI，和四位小数不相等；按保存精度比较，未动过的不写入 */
+    else if (Math.abs(cur[0] - d.def[0]) > 5e-4 || Math.abs(cur[1] - d.def[1]) > 5e-4 || Math.abs(cur[2] - d.def[2]) > 5e-5) {
+      moved[d.key] = cur;
+    }
   }
-  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(data)); } catch (e) { /* 隐私模式等场景忽略 */ }
+  return { moved, added, removedKeys };
 }
-function layoutLoad() {
-  let data = null;
-  try { data = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch (e) { return; }
-  if (!data) return;
-  for (const d of draggables) {
-    const saved = data[d.key];
-    if (saved) { d.root.position.x = saved[0]; d.root.position.z = saved[1]; d.root.rotation.y = saved[2]; }
+function layoutSave() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layoutSnapshot())); } catch (e) { /* 隐私模式等场景忽略 */ }
+}
+function layoutLoad(preset) {
+  let raw = preset;
+  if (preset === undefined) {
+    try { raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch (e) { return; }
+  }
+  if (!raw) return;
+  const data = normalizeLayout(raw);
+  const removed = new Set(data.removedKeys);
+  for (const d of [...draggables]) {
+    if (d.added) continue;
+    if (removed.has(d.key)) { d.removed = true; d.root.visible = false; continue; }
+    const saved = data.moved[d.key];
+    if (Array.isArray(saved) && saved.length >= 3) {
+      d.root.position.x = +saved[0];
+      d.root.position.z = +saved[1];
+      d.root.rotation.y = +saved[2];
+    }
+  }
+  for (const a of data.added) {
+    if (!a || !isCatalogType(a.type)) continue;
+    const x = +a.x, z = +a.z, ry = +a.ry || 0;
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(ry)) continue;
+    attachCatalog(a.type, x, z, ry, typeof a.key === 'string' ? a.key : null);
   }
 }
 function layoutReset() {
-  for (const d of draggables) { d.root.position.x = d.def[0]; d.root.position.z = d.def[1]; d.root.rotation.y = d.def[2]; }
+  selectItem(null);
+  cancelPlace();
+  for (let i = draggables.length - 1; i >= 0; i--) {
+    const d = draggables[i];
+    if (d.added) {
+      forgetLamps(d.root);
+      if (d.root.parent) d.root.parent.remove(d.root);
+      draggables.splice(i, 1);
+    } else {
+      d.removed = false;
+      d.root.visible = true;
+      d.root.position.x = d.def[0];
+      d.root.position.z = d.def[1];
+      d.root.rotation.y = d.def[2];
+    }
+  }
   try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
   rebuildFurnitureBoxes();
 }
@@ -1777,8 +2024,104 @@ function pickDraggable(ev) {
   return o ? draggables.find(d => d.root === o) : null;
 }
 
+/* ---------- 目录放置：幽灵跟随光标，点击且 canPlace 才落下 ---------- */
+const placeRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.32, 0.46, 40),
+  new THREE.MeshBasicMaterial({ color: 0x7E8D7A, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+placeRing.rotation.x = -Math.PI / 2;
+placeRing.position.y = 0.03;
+placeRing.renderOrder = 4;
+placeRing.visible = false;
+scene.add(placeRing);
+
+function setPlaceHint(on) {
+  const el = $('arrangeHint');
+  if (!el) return;
+  el.textContent = on
+    ? '移动光标选位置 · 点击落下 · R 旋转 · ESC 取消'
+    : '拖拽移动 · 点击选中 · R 旋转 · Delete 删除';
+}
+function markCatalogButton(type) {
+  document.querySelectorAll('#catalogList .cat-item').forEach(b => b.classList.toggle('on', b.dataset.type === type));
+}
+function cancelPlace() {
+  if (!placing) return;
+  if (placing.ghost.parent) placing.ghost.parent.remove(placing.ghost);
+  disposeGhost(placing.ghost);
+  placing = null;
+  placeRing.visible = false;
+  document.body.classList.remove('placing');
+  setPlaceHint(false);
+  markCatalogButton(null);
+}
+function beginPlace(type) {
+  if (!arranging || viewMode === 'interior' || !isCatalogType(type)) return;
+  cancelPlace();
+  selectItem(null);
+  const ghost = makeGhost(createPiece(F, type));
+  scene.add(ghost);
+  const r = pieceRadius(ghost);
+  const probe = { r };
+  let seed = null;
+  for (const room of ROOMS) {
+    if (canPlace(room.label[0], room.label[1], probe)) { seed = room.label; break; }
+  }
+  if (!seed) seed = [PLAN.W / 2, PLAN.D / 2];
+  placing = { type, ghost, r, ry: 0, x: seed[0], z: seed[1], valid: canPlace(seed[0], seed[1], probe) };
+  ghost.position.set(seed[0], ghost.userData.floorY || 0, seed[1]);
+  placeRing.position.set(seed[0], 0.03, seed[1]);
+  placeRing.visible = true;
+  paintGhost(ghost, placing.valid);
+  placeRing.material.color.set(placing.valid ? 0x7E8D7A : 0xA65D57);
+  document.body.classList.add('placing');
+  setPlaceHint(true);
+  markCatalogButton(type);
+}
+function moveGhost(ev) {
+  if (!placing) return;
+  mouse.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(mouse, getActiveCamera());
+  if (!ray.ray.intersectPlane(dragPlane, dragPoint)) return;
+  placing.x = dragPoint.x;
+  placing.z = dragPoint.z;
+  placing.ghost.position.set(placing.x, placing.ghost.userData.floorY || 0, placing.z);
+  placing.ghost.rotation.y = placing.ry;
+  placeRing.position.x = placing.x;
+  placeRing.position.z = placing.z;
+  placing.valid = canPlace(placing.x, placing.z, placing);
+  paintGhost(placing.ghost, placing.valid);
+  placeRing.material.color.set(placing.valid ? 0x7E8D7A : 0xA65D57);
+}
+function commitPlace() {
+  if (!placing || !placing.valid) return;
+  const { type, x, z, ry } = placing;
+  cancelPlace();
+  const item = attachCatalog(type, x, z, ry, null);
+  if (!item) return;
+  selectItem(item);
+  rebuildFurnitureBoxes();
+  layoutSave();
+}
+function deleteSelected() {
+  const d = selectedItem;
+  if (!d || !arranging) return;
+  if (d.added) {
+    forgetLamps(d.root);
+    if (d.root.parent) d.root.parent.remove(d.root);
+    const i = draggables.indexOf(d);
+    if (i >= 0) draggables.splice(i, 1);
+  } else {
+    d.removed = true;
+    d.root.visible = false;
+  }
+  selectItem(null);
+  rebuildFurnitureBoxes();
+  layoutSave();
+}
+
 renderer.domElement.addEventListener('pointerdown', ev => {
-  if (!arranging || viewMode === 'interior') return;
+  if (!arranging || viewMode === 'interior' || swallowClick || isTouring()) return;
+  if (placing) return;                       // 放置态留给 pointerup 决定落不落
   const d = pickDraggable(ev);
   if (!d) { selectItem(null); return; }
   dragItem = d;
@@ -1790,6 +2133,10 @@ renderer.domElement.addEventListener('pointerdown', ev => {
   } else dragGrab = { x: 0, z: 0 };
 });
 addEventListener('pointermove', ev => {
+  if (placing && arranging && viewMode !== 'interior' && ev.target === renderer.domElement) {
+    moveGhost(ev);
+    return;
+  }
   if (!arranging || !dragItem || !dragGrab) return;
   mouse.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(mouse, getActiveCamera());
@@ -1807,32 +2154,179 @@ addEventListener('pointermove', ev => {
 addEventListener('pointerup', () => {
   if (dragItem) {
     dragItem = null; dragGrab = null;
-    controls.enabled = viewMode !== 'interior';
+    controls.enabled = viewMode !== 'interior' && !isTouring();
     rebuildFurnitureBoxes();                             // 漫游碰撞同步
     layoutSave();
   }
 });
+/* 点在按钮上退出导览时，canvas 收不到 pointerup，这里把吞点击标记清掉 */
+addEventListener('pointerup', () => { swallowClick = false; });
 function rotateSelected() {
+  if (placing) {
+    placing.ry += Math.PI / 4;
+    placing.ghost.rotation.y = placing.ry;
+    return;
+  }
   if (!selectedItem) return;
   selectedItem.root.rotation.y += Math.PI / 4;
   rebuildFurnitureBoxes();
   layoutSave();
 }
-addEventListener('keydown', e => { if (arranging && e.code === 'KeyR') rotateSelected(); });
+addEventListener('keydown', e => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (isTouring()) { tourCtrl.stop(); return; }
+  if (e.code === 'Escape' && placing) { e.preventDefault(); cancelPlace(); return; }
+  if (!arranging) return;
+  if (e.code === 'KeyR') rotateSelected();
+  if ((e.code === 'Delete' || e.code === 'Backspace') && selectedItem && !placing) {
+    e.preventDefault();
+    deleteSelected();
+  }
+});
 
 function setArranging(on) {
+  if (on && (isTouring() || viewMode === 'interior')) return;
   arranging = on;
   document.body.classList.toggle('arranging', on);
-  if (!on) selectItem(null);
+  if (!on) { cancelPlace(); selectItem(null); }
   $('arrangeBtn').classList.toggle('on', on);
 }
 $('arrangeBtn').onclick = () => setArranging(!arranging);
 $('rotBtn').onclick = rotateSelected;
-$('arrangeReset').onclick = () => { layoutReset(); selectItem(selectedItem); };
+$('delBtn').onclick = deleteSelected;
+$('arrangeReset').onclick = () => layoutReset();
 $('arrangeDone').onclick = () => setArranging(false);
 
+/* ---------- 目录面板 ---------- */
+function renderCatalog() {
+  const box = $('catalogList');
+  if (!box) return;
+  box.innerHTML = catalogEntries(config.id).map(it =>
+    `<button type="button" class="cat-item" data-type="${it.type}">${it.name}</button>`).join('');
+  box.onclick = (e) => {
+    const btn = e.target.closest && e.target.closest('.cat-item');
+    if (!btn) return;
+    beginPlace(btn.dataset.type);
+  };
+}
+renderCatalog();
+
+/* ---------- 方案链接 ---------- */
+function buildShareURL() {
+  const L = layoutSnapshot();
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(L)); } catch (e) {}
+  const hash = 's=' + encodeShare({
+    p: config.id,
+    st: currentStyle ? currentStyle.id : 'morning',
+    m: currentMode,
+    L,
+  });
+  const u = new URL(location.href);
+  u.searchParams.set('plan', config.id);
+  u.hash = hash;
+  try { history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {}
+  return u.href;
+}
+let copyTimer = 0;
+function copyShareLink(btn) {
+  const url = buildShareURL();
+  const done = () => {
+    const note = $('posterCopied');
+    if (note) {
+      note.classList.add('show');
+      clearTimeout(note._t);
+      note._t = setTimeout(() => note.classList.remove('show'), 1600);
+    }
+    if (btn) {
+      btn.textContent = '已复制';
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => { btn.textContent = '复制方案链接'; }, 1600);
+    }
+  };
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    ta.remove();
+    done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, fallback);
+  else fallback();
+}
+$('posterCopy').onclick = () => copyShareLink($('posterCopy'));
+
+/* ---------- 导览 ---------- */
+let tourUi = { active: false, caption: '' };
+function syncTourUi(state) {
+  const cap = $('tourCaption');
+  const dots = $('tourDots');
+  if (!cap || !dots) return;
+  if (!state.active) {
+    cap.classList.remove('show');
+    cap.textContent = '';
+    dots.innerHTML = '';
+    tourUi = { active: false, caption: '' };
+    return;
+  }
+  if (!tourUi.active || tourUi.caption !== state.caption || dots.childElementCount !== state.count) {
+    cap.textContent = state.caption;
+    dots.innerHTML = '';
+    for (let i = 0; i < state.count; i++) dots.appendChild(document.createElement('i'));
+  }
+  [...dots.children].forEach((dot, i) => {
+    dot.classList.toggle('on', i === state.index);
+    dot.classList.toggle('done', i < state.index);
+  });
+  cap.classList.toggle('show', !!state.showCaption);
+  tourUi = { active: true, caption: state.caption };
+}
+tourCtrl = createTour({
+  getShots: () => config.tour || [],
+  flyTo: (pos, tgt, dur) => flyTo(pos, tgt, dur),
+  isFlying: () => camTween.active,
+  flyProgress: () => (camTween.active ? Math.min(camTween.t, 1) : 1),
+  getViewMode: () => viewMode,
+  setViewMode,
+  setArranging,
+  setControls: (on) => { controls.enabled = !!on; },
+  cancelFly: () => { camTween.active = false; },
+  restoreView: () => { fitPerspForAspect(); },
+  blocked: () => introT >= 0 && introT < 1,
+  onActive: (on) => {
+    document.body.classList.toggle('touring', on);
+    if (on) { cancelPlace(); selectRoom(null); }
+  },
+  onChange: syncTourUi,
+});
+if (!config.tour || !config.tour.length) $('tourBtn').style.display = 'none';
+$('tourBtn').onclick = () => { if (isTouring()) tourCtrl.stop(); else tourCtrl.start(); };
+addEventListener('pointerdown', (e) => {
+  if (!isTouring()) return;
+  if (e.target && e.target.closest && e.target.closest('#tourBtn')) return;
+  tourCtrl.stop();
+  swallowClick = true;
+  /* stop() 会重新打开 OrbitControls。这一下若落在画布上，不能接着开始旋转。 */
+  if (e.target === renderer.domElement) e.stopPropagation();
+}, true);
+addEventListener('wheel', (e) => {
+  if (!isTouring()) return;
+  e.preventDefault();
+  e.stopPropagation();
+  tourCtrl.stop();
+}, { capture: true, passive: false });
+
 collectDraggables();
-layoutLoad();
+if (shareState && shareState.p === config.id) {
+  const preset = normalizeLayout(shareState.L || {});
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(preset)); } catch (e) {}
+  layoutLoad(preset);
+} else layoutLoad();
 rebuildFurnitureBoxes();
 
 /* 初始：开场覆盖层 + 下午光 + 默认模式 + 默认风格 + 户型文案 */
@@ -1849,9 +2343,20 @@ document.querySelectorAll('.plan-wrap img, #fallback img').forEach(im => { im.sr
 document.querySelectorAll('#planBar .plan').forEach(b => b.classList.toggle('on', b.dataset.p === config.id));
 if (!MODES.length) document.body.classList.add('no-modes');
 
+initWeather(scene, PLAN);
+let bootWeather = 'clear';
+try {
+  const saved = localStorage.getItem(WEATHER_KEY);
+  if (saved === 'clear' || saved === 'overcast' || saved === 'rain' || saved === 'snow') bootWeather = saved;
+} catch (e) { /* 隐私模式等场景忽略 */ }
+setWeather(bootWeather);
+
+const shareHere = !!(shareState && shareState.p === config.id);
+const initStyle = (shareHere && STYLES.some(s => s.id === shareState.st)) ? shareState.st : 'morning';
+const initMode = (shareHere && MODES.some(m => m.id === shareState.m)) ? shareState.m : (MODES[0] && MODES[0].id);
 applyTime(0.45);
-if (MODES.length) setMode(MODES[0].id, true);
-applyStyle('morning');
+if (initMode) setMode(initMode, true);
+applyStyle(initStyle);
 camera.position.set(...config.introFrom.pos);
 controls.target.set(...config.introFrom.tgt);
 swapInGLBAssets().finally(() => {
