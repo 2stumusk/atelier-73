@@ -1,0 +1,172 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>73㎡，第二间房应该留给谁？</title>
+<link rel="stylesheet" href="./styles.css"/>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/lib/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/",
+    "three/examples/jsm/": "./vendor/three/examples/jsm/"
+  }
+}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=&#39;http://www.w3.org/2000/svg&#39; viewBox=&#39;0 0 16 16&#39;%3E%3Crect width=&#39;16&#39; height=&#39;16&#39; rx=&#39;3&#39; fill=&#39;%23333&#39;/%3E%3C/svg%3E"/></head>
+<body>
+<div id="stage"></div>
+<div id="loading">正在打开这个家…</div>
+
+<!-- WebGL 不可用时的静态兜底 -->
+<div id="fallback">
+  <div class="fb-inner">
+    <h1>73㎡，第二间房应该留给谁？</h1>
+    <p>当前浏览器不支持 WebGL，先看一下这张 2D 户型图吧。</p>
+    <img src="./assets/floorplan-2d.png" alt="2B1B 户型图"/>
+  </div>
+</div>
+
+<!-- 开场：2D 户型图 -->
+<div id="intro">
+  <div class="intro-card">
+    <p class="kicker">2B1B · 建筑面积 73 ㎡</p>
+    <h1>73㎡，第二间房应该留给谁？</h1>
+    <p class="sub">同一个家，三种生活答案</p>
+    <div class="plan-wrap"><img src="./assets/floorplan-2d.png" alt="2B1B / PROPOSED FLOOR PLAN"/></div>
+    <button id="enterBtn">走进这个家</button>
+    <p class="hint">平面线条会生长成墙，墙里会亮起灯——大约 7 秒</p>
+  </div>
+</div>
+
+<button id="skipBtn">跳过动画</button>
+
+<!-- HUD -->
+<header id="hud">
+  <div class="title-block">
+    <h1>73㎡，第二间房应该留给谁？</h1>
+    <p>同一个家，三种生活答案</p>
+    <nav id="planBar">
+      <button class="plan on" data-p="p73" onclick="location.search='?plan=p73'">73㎡ 两居</button>
+      <button class="plan" data-p="p45" onclick="location.search='?plan=p45'">45㎡ 一居</button>
+      <button class="plan" data-p="p96" onclick="location.search='?plan=p96'">96㎡ 三居</button>
+    </nav>
+  </div>
+  <div class="hud-actions">
+    <button id="arrangeBtn">布置家具</button>
+    <button id="listBtn">软装清单</button>
+    <button id="shareBtn">分享方案</button>
+    <button id="moreBtn" aria-label="更多">⋯ 更多</button>
+  </div>
+</header>
+
+<!-- 布置模式工具栏 -->
+<div id="arrangeBar">
+  <span class="hint">拖拽移动 · 点击选中 · R 旋转 45°</span>
+  <button id="rotBtn">旋转</button>
+  <button id="arrangeReset" class="ghost">重置布置</button>
+  <button id="arrangeDone">完成</button>
+</div>
+
+<!-- 风格切换 -->
+<nav id="styleBar">
+  <div class="styles">
+    <button class="style on" data-s="morning">晨雾原木</button>
+    <button class="style" data-s="cream">云栖奶油</button>
+    <button class="style" data-s="sage">青野鼠尾草</button>
+    <button class="style" data-s="lunar">月岩浅灰</button>
+  </div>
+  <p id="styleDesc"></p>
+</nav>
+
+<!-- 软装清单抽屉 -->
+<aside id="listPanel">
+  <button id="listClose" aria-label="关闭">×</button>
+  <p class="ls-kicker">软装清单</p>
+  <h2 id="listStyleName"></h2>
+  <div id="listBody"></div>
+  <div class="ls-total"><span>全屋软装参考合计</span><strong id="listTotal"></strong></div>
+  <p class="ls-tip">价格为市场参考价，随品牌与渠道浮动</p>
+</aside>
+
+<!-- 分享海报 -->
+<div id="posterModal">
+  <div class="poster-inner">
+    <img id="posterImg" alt="方案分享海报"/>
+    <div class="poster-actions">
+      <button id="posterDownload">保存海报</button>
+      <button id="posterClose" class="ghost">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 更多面板 -->
+<aside id="morePanel">
+  <h3>显示</h3>
+  <label><input type="checkbox" id="tglRoof"/> 屋顶 / 天花</label>
+  <label><input type="checkbox" id="tglFurn" checked=""/> 家具</label>
+  <label><input type="checkbox" id="tglLabels" checked=""/> 房间名称</label>
+  <label><input type="checkbox" id="tglDims"/> 尺寸线</label>
+  <label><input type="checkbox" id="tglPlan"/> 叠加 2D 户型图</label>
+  <h3>墙体透明度</h3>
+  <input type="range" id="wallAlpha" min="20" max="100" value="100"/>
+  <h3>视角</h3>
+  <button id="btnReset" class="ghost">重置视角</button>
+  <p class="tip">拖拽旋转 · 滚轮缩放 · 右键平移<br/>点击房间看详情，点击门可以开关</p>
+</aside>
+
+<!-- 视图模式 -->
+<nav id="viewSeg">
+  <button data-v="dollhouse" class="on">立体</button>
+  <button data-v="top">俯视</button>
+  <button data-v="interior">漫游</button>
+  <button data-v="section">剖切</button>
+</nav>
+
+<!-- 漫游提示条（仅漫游时显示） -->
+<div id="roamHint">
+  <span class="keys">WASD / 方向键移动 · 拖拽环视 · 滚轮前进</span>
+  <button id="roamExit">退出漫游</button>
+</div>
+
+<!-- 房间信息卡 -->
+<aside id="roomCard">
+  <button id="rcClose" aria-label="关闭">×</button>
+  <h2 id="rcName">主卧</h2>
+  <p class="rc-size" id="rcSize"></p>
+  <p id="rcDesc"></p>
+  <p class="rc-furn" id="rcFurn"></p>
+</aside>
+
+<!-- 问题 + 三种生活 + 时间 -->
+<div id="question">第二间房，你会留给谁？</div>
+<div id="modeBar">
+  <div class="modes">
+    <button class="mode on" data-m="work">在家工作</button>
+    <button class="mode" data-m="guest">朋友留宿</button>
+    <button class="mode" data-m="future">留给未来</button>
+  </div>
+  <p id="modeDesc"></p>
+  <div class="row">
+    <button id="chooseBtn">这是我的选择</button>
+    <div class="time">
+      <span id="timeLabel">下午</span>
+      <input type="range" id="timeSlider" min="8" max="95" value="45"/>
+      <span class="ticks">上午 · 下午 · 夜晚</span>
+    </div>
+  </div>
+</div>
+<div id="chosenBadge"></div>
+
+<!-- 选择确认动画 -->
+<div id="chosenCard">
+  <svg viewBox="0 0 64 64" width="52" height="52">
+    <circle class="ck-circle" cx="32" cy="32" r="28"></circle>
+    <path class="ck-path" d="M20 33 L29 42 L45 24"></path>
+  </svg>
+  <p id="chosenText">这是你的选择</p>
+</div>
+
+<script type="module" src="./main.js"></script>
+
+
+</body></html>

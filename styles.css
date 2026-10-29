@@ -1,0 +1,302 @@
+/* styles.css — 建筑作品集式 UI：暖白半透明、细边框、轻微模糊 */
+:root {
+  --bg: #F2F0EB;
+  --ink: #3A352E;
+  --ink-soft: #6B655A;
+  --line: rgba(58, 53, 46, 0.16);
+  --panel: rgba(250, 248, 243, 0.82);
+  --sage: #7E8D7A;
+  --oak: #C7A77A;
+  --serif: "Songti SC", "Noto Serif SC", "STSong", serif;
+  --sans: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: var(--sans); color: var(--ink); }
+#stage, #stage canvas { position: fixed; inset: 0; display: block; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink-soft); font-size: 14px; letter-spacing: 0.2em; z-index: 5; }
+
+/* ---------- 兜底 ---------- */
+#fallback { position: fixed; inset: 0; display: none; place-items: center; background: var(--bg); z-index: 40; }
+.fb-inner { max-width: 760px; padding: 32px; text-align: center; }
+.fb-inner h1 { font-family: var(--serif); font-size: 26px; margin-bottom: 10px; }
+.fb-inner p { color: var(--ink-soft); margin-bottom: 18px; }
+.fb-inner img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+
+/* ---------- 开场 ---------- */
+#intro { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
+  background: linear-gradient(180deg, #F5F3EE 0%, #EDE9E1 100%);
+  transition: opacity 0.9s ease, visibility 0.9s; }
+#intro.hide { opacity: 0; visibility: hidden; }
+.intro-card { width: min(880px, 92vw); max-height: 94vh; text-align: center; overflow: auto; padding: 12px; }
+.kicker { font-size: 12px; letter-spacing: 0.35em; color: var(--ink-soft); text-transform: uppercase; }
+.intro-card h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(24px, 4vw, 40px); margin: 14px 0 6px; }
+.intro-card .sub { color: var(--ink-soft); letter-spacing: 0.18em; font-size: clamp(12px, 1.6vw, 15px); }
+.plan-wrap { margin: 14px auto; border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  padding: 8px; box-shadow: 0 18px 50px rgba(58, 53, 46, 0.10); }
+.plan-wrap img { display: block; width: 100%; max-height: 42vh; object-fit: contain; }
+#enterBtn { font-family: var(--serif); font-size: 17px; letter-spacing: 0.25em; padding: 13px 46px 13px 52px;
+  color: #F9F6EF; background: var(--ink); border: none; border-radius: 999px; cursor: pointer;
+  transition: transform 0.25s, box-shadow 0.25s; }
+#enterBtn:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(58, 53, 46, 0.28); }
+.hint { margin-top: 12px; font-size: 12px; color: var(--ink-soft); letter-spacing: 0.08em; }
+
+#skipBtn { position: fixed; right: 22px; bottom: 22px; z-index: 25; padding: 9px 20px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(8px);
+  color: var(--ink-soft); font-size: 13px; cursor: pointer; opacity: 0; visibility: hidden; transition: opacity 0.4s; }
+#skipBtn.show { opacity: 1; visibility: visible; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; top: 0; left: 0; right: 0; z-index: 12; display: flex; justify-content: space-between;
+  align-items: flex-start; padding: 20px 24px; pointer-events: none;
+  opacity: 0; transform: translateY(-8px); transition: opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s; }
+#hud.show { opacity: 1; transform: none; pointer-events: auto; }
+.title-block h1 { font-family: var(--serif); font-size: clamp(16px, 2vw, 22px); font-weight: 600; letter-spacing: 0.04em; }
+.title-block p { font-size: 12px; color: var(--ink-soft); letter-spacing: 0.22em; margin-top: 4px; }
+#moreBtn { padding: 8px 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+  backdrop-filter: blur(10px); font-size: 13px; color: var(--ink); cursor: pointer; }
+#moreBtn:hover { border-color: var(--ink-soft); }
+
+/* ---------- 更多面板 ---------- */
+#morePanel { position: fixed; top: 68px; right: 24px; z-index: 14; width: 218px; padding: 16px 18px;
+  background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(58, 53, 46, 0.12);
+  opacity: 0; visibility: hidden; transform: translateY(-6px); transition: all 0.25s ease; }
+#morePanel.show { opacity: 1; visibility: visible; transform: none; }
+#morePanel h3 { font-size: 11px; letter-spacing: 0.25em; color: var(--ink-soft); margin: 12px 0 8px; font-weight: 500; }
+#morePanel h3:first-child { margin-top: 0; }
+#morePanel label { display: block; font-size: 13px; padding: 4px 0; cursor: pointer; }
+#morePanel input[type="checkbox"] { accent-color: var(--sage); margin-right: 6px; }
+#morePanel input[type="range"] { width: 100%; accent-color: var(--sage); }
+#morePanel .ghost { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--ink); font-size: 13px; cursor: pointer; }
+#morePanel .ghost:hover { background: rgba(126, 141, 122, 0.12); }
+#morePanel .tip { margin-top: 12px; font-size: 11px; line-height: 1.8; color: var(--ink-soft); }
+
+/* ---------- 视图模式 ---------- */
+#viewSeg { position: fixed; left: 24px; bottom: 24px; z-index: 12; display: flex; gap: 2px;
+  background: var(--panel); backdrop-filter: blur(10px); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px; }
+#viewSeg button { border: none; background: transparent; padding: 7px 16px; border-radius: 999px;
+  font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all 0.2s; }
+#viewSeg button.on { background: var(--ink); color: #F9F6EF; }
+
+/* ---------- 房间卡 ---------- */
+#roomCard { position: fixed; right: 24px; top: 50%; z-index: 13; width: 250px; padding: 22px 22px 18px;
+  transform: translateY(-50%) translateX(12px); background: var(--panel); backdrop-filter: blur(12px);
+  border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 50px rgba(58, 53, 46, 0.14);
+  opacity: 0; visibility: hidden; transition: all 0.35s ease; }
+#roomCard.show { opacity: 1; visibility: visible; transform: translateY(-50%); }
+#roomCard h2 { font-family: var(--serif); font-size: 22px; margin-bottom: 4px; }
+.rc-size { font-size: 12px; letter-spacing: 0.12em; color: var(--sage); margin-bottom: 10px; }
+#rcDesc { font-size: 13px; line-height: 1.8; color: var(--ink); }
+.rc-furn { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 12px; line-height: 1.8; color: var(--ink-soft); }
+#rcClose { position: absolute; top: 10px; right: 14px; border: none; background: none;
+  font-size: 20px; color: var(--ink-soft); cursor: pointer; }
+
+/* ---------- 问题 + 模式条 ---------- */
+#question { position: fixed; left: 50%; bottom: 212px; transform: translateX(-50%) translateY(8px); z-index: 12;
+  font-family: var(--serif); font-size: clamp(17px, 2.4vw, 24px); letter-spacing: 0.12em;
+  text-shadow: 0 2px 18px rgba(242, 240, 235, 0.9); opacity: 0; transition: all 0.9s ease 0.3s; }
+#question.show { opacity: 1; transform: translateX(-50%); }
+#modeBar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(10px); z-index: 12;
+  width: min(620px, 94vw); padding: 14px 20px 12px; background: var(--panel); backdrop-filter: blur(12px);
+  border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 14px 40px rgba(58, 53, 46, 0.12);
+  opacity: 0; visibility: hidden; transition: all 0.7s ease 0.45s; }
+#modeBar.show { opacity: 1; visibility: visible; transform: translateX(-50%); }
+.modes { display: flex; gap: 6px; justify-content: center; }
+.modes .mode { flex: 1; padding: 9px 0; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; font-family: var(--serif); font-size: 15px; letter-spacing: 0.15em;
+  color: var(--ink-soft); cursor: pointer; transition: all 0.25s; }
+.modes .mode.on { background: var(--sage); border-color: var(--sage); color: #F7F5EF; }
+#modeDesc { text-align: center; font-size: 12px; color: var(--ink-soft); margin: 9px 0 10px; letter-spacing: 0.04em; }
+#modeBar .row { display: flex; align-items: center; gap: 16px; }
+#chooseBtn { flex-shrink: 0; padding: 9px 26px; border-radius: 999px; border: none;
+  background: var(--ink); color: #F9F6EF; font-family: var(--serif); font-size: 14px; letter-spacing: 0.18em;
+  cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+#chooseBtn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(58, 53, 46, 0.25); }
+.time { flex: 1; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+#timeLabel { font-size: 12px; color: var(--ink); letter-spacing: 0.1em; }
+#timeSlider { width: 100%; accent-color: var(--oak); }
+.time .ticks { grid-column: 2; font-size: 10px; color: var(--ink-soft); display: flex; justify-content: space-between; letter-spacing: 0.2em; }
+
+#chosenBadge { position: fixed; left: 50%; bottom: 212px; transform: translateX(-50%); z-index: 11;
+  padding: 8px 22px; border-radius: 999px; background: rgba(126, 141, 122, 0.92); color: #F7F5EF;
+  font-family: var(--serif); font-size: 14px; letter-spacing: 0.15em;
+  opacity: 0; visibility: hidden; transition: all 0.5s ease; }
+#chosenBadge.show { opacity: 1; visibility: visible; }
+#chosenBadge.show ~ #question, #question { transition: all 0.5s; }
+
+/* ---------- 选择确认动画 ---------- */
+#chosenCard { position: fixed; inset: 0; z-index: 26; display: grid; place-items: center;
+  background: rgba(242, 240, 235, 0.55); backdrop-filter: blur(6px);
+  opacity: 0; visibility: hidden; transition: opacity 0.4s ease; }
+#chosenCard.show { opacity: 1; visibility: visible; }
+#chosenCard p { margin-top: 16px; font-family: var(--serif); font-size: 22px; letter-spacing: 0.15em; }
+#chosenCard svg { display: block; margin: 0 auto; }
+.ck-circle { fill: none; stroke: var(--sage); stroke-width: 2.5; stroke-dasharray: 176; stroke-dashoffset: 176; }
+.ck-path { fill: none; stroke: var(--sage); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 40; stroke-dashoffset: 40; }
+#chosenCard.show .ck-circle { animation: draw 0.7s ease forwards; }
+#chosenCard.show .ck-path { animation: draw 0.45s ease 0.55s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 720px) {
+  #hud { padding: 14px 16px; }
+  .title-block p { display: none; }
+  #viewSeg { left: 16px; bottom: auto; top: 64px; }
+  #viewSeg button { padding: 6px 12px; font-size: 12px; }
+  #modeBar { bottom: 14px; padding: 12px 14px 10px; }
+  #modeBar .row { flex-direction: column; align-items: stretch; gap: 8px; }
+  #question { bottom: 236px; width: 90vw; text-align: center; }
+  #roomCard { right: 12px; width: 210px; }
+  #morePanel { right: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01s !important; transition-duration: 0.01s !important; }
+}
+
+/* ---------- 漫游模式：折叠大面板，仅保留小提示条 ---------- */
+#roamHint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 13;
+  display: none; align-items: center; gap: 14px; padding: 8px 10px 8px 18px;
+  background: rgba(250, 247, 240, 0.92); backdrop-filter: blur(10px);
+  border: 1px solid rgba(60, 56, 50, 0.14); border-radius: 999px;
+  font-size: 12.5px; color: var(--ink); box-shadow: 0 6px 24px rgba(60, 56, 50, 0.12); }
+#roamHint .keys { opacity: 0.75; letter-spacing: 0.02em; }
+#roamHint button { border: none; background: var(--ink); color: #F9F6EF;
+  padding: 7px 16px; border-radius: 999px; font-size: 12.5px; cursor: pointer; }
+#roamHint button:hover { opacity: 0.85; }
+body.roaming #roamHint { display: flex; }
+body.roaming #modeBar,
+body.roaming #question,
+body.roaming #roomCard,
+body.roaming #chosenBadge,
+body.roaming #moreBtn { display: none; }
+
+@media (max-width: 720px) {
+  #roamHint { bottom: 14px; gap: 8px; padding-left: 12px; font-size: 11.5px; }
+}
+
+/* =====================================================================
+ * 高端清新 · 新增组件与视觉微调
+ * ===================================================================== */
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+button { font-family: inherit; }
+
+/* ---------- HUD 右侧操作组 ---------- */
+.hud-actions { display: flex; gap: 8px; }
+.hud-actions button { padding: 8px 18px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); backdrop-filter: blur(10px); font-size: 13px; letter-spacing: 0.08em;
+  color: var(--ink); cursor: pointer; transition: border-color 0.2s, transform 0.2s; }
+.hud-actions button:hover { border-color: var(--ink-soft); transform: translateY(-1px); }
+
+/* ---------- 风格切换栏（顶部居中） ---------- */
+#styleBar { position: fixed; top: 22px; left: 50%; transform: translateX(-50%) translateY(-8px); z-index: 12;
+  text-align: center; opacity: 0; visibility: hidden; transition: all 0.8s ease 0.35s; pointer-events: none; }
+#hud.show ~ #styleBar, #styleBar.show { opacity: 1; visibility: visible; transform: translateX(-50%); pointer-events: auto; }
+#styleBar .styles { display: inline-flex; gap: 2px; padding: 4px;
+  background: var(--panel); backdrop-filter: blur(10px);
+  border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: 0 8px 26px rgba(58, 53, 46, 0.08); }
+#styleBar .style { border: none; background: transparent; padding: 7px 16px; border-radius: 999px;
+  font-family: var(--serif); font-size: 13px; letter-spacing: 0.12em;
+  color: var(--ink-soft); cursor: pointer; transition: all 0.25s; white-space: nowrap; }
+#styleBar .style:hover { color: var(--ink); }
+#styleBar .style.on { background: var(--sage); color: #F7F5EF; }
+#styleDesc { margin-top: 8px; font-size: 11.5px; letter-spacing: 0.14em; color: var(--ink-soft);
+  text-shadow: 0 1px 12px rgba(242, 240, 235, 0.9); }
+body.roaming #styleBar { display: none; }
+
+/* ---------- 软装清单抽屉 ---------- */
+#listPanel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 16; width: min(360px, 92vw);
+  padding: 30px 26px 24px; overflow-y: auto;
+  background: rgba(252, 250, 245, 0.94); backdrop-filter: blur(14px);
+  border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(58, 53, 46, 0.14);
+  transform: translateX(100%); transition: transform 0.38s cubic-bezier(0.32, 0.72, 0.28, 1); }
+#listPanel.show { transform: none; }
+#listClose { position: absolute; top: 14px; right: 18px; border: none; background: none;
+  font-size: 22px; color: var(--ink-soft); cursor: pointer; }
+.ls-kicker { font-size: 11px; letter-spacing: 0.35em; color: var(--sage); margin-bottom: 6px; }
+#listPanel h2 { font-family: var(--serif); font-size: 21px; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 10px; }
+.ls-note { font-size: 12px; line-height: 1.7; color: var(--ink-soft); padding: 8px 12px;
+  background: rgba(126, 141, 122, 0.10); border-radius: 8px; margin-bottom: 14px; }
+#listBody h4 { font-family: var(--serif); font-size: 14px; letter-spacing: 0.18em; color: var(--ink);
+  margin: 16px 0 4px; padding-bottom: 5px; border-bottom: 1px solid var(--line); }
+.ls-item { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 5px 0; font-size: 13px; }
+.ls-name { color: var(--ink); }
+.ls-name em { display: block; font-style: normal; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+.ls-price { color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ls-total { display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 20px; padding-top: 14px; border-top: 2px solid var(--ink); }
+.ls-total span { font-size: 13px; letter-spacing: 0.1em; }
+.ls-total strong { font-family: var(--serif); font-size: 24px; color: var(--sage); font-weight: 600; }
+.ls-tip { margin-top: 10px; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.05em; }
+
+/* ---------- 分享海报弹窗 ---------- */
+#posterModal { position: fixed; inset: 0; z-index: 28; display: grid; place-items: center;
+  background: rgba(242, 240, 235, 0.72); backdrop-filter: blur(10px);
+  opacity: 0; visibility: hidden; transition: opacity 0.35s ease; }
+#posterModal.show { opacity: 1; visibility: visible; }
+.poster-inner { display: flex; flex-direction: column; align-items: center; gap: 16px;
+  max-height: 94vh; padding: 12px; }
+#posterImg { height: min(76vh, 720px); border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(58, 53, 46, 0.30); }
+.poster-actions { display: flex; gap: 10px; }
+.poster-actions button { padding: 10px 30px; border-radius: 999px; font-family: var(--serif);
+  font-size: 14px; letter-spacing: 0.15em; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+#posterDownload { border: none; background: var(--ink); color: #F9F6EF; }
+#posterDownload:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(58, 53, 46, 0.25); }
+.poster-actions .ghost { border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.poster-actions .ghost:hover { border-color: var(--ink-soft); }
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 720px) {
+  .hud-actions button { padding: 7px 12px; font-size: 12px; }
+  #styleBar { top: 112px; width: 94vw; }
+  #styleBar .style { padding: 6px 10px; font-size: 12px; }
+  #styleDesc { display: none; }
+}
+
+/* =====================================================================
+ * 户型切换 + 家具布置模式
+ * ===================================================================== */
+
+/* ---------- 户型切换（标题下方小字链） ---------- */
+#planBar { display: flex; gap: 2px; margin-top: 10px; }
+#planBar .plan { border: none; background: transparent; padding: 3px 10px 3px 0;
+  font-size: 12px; letter-spacing: 0.1em; color: var(--ink-soft); cursor: pointer;
+  border-bottom: 1px solid transparent; transition: color 0.2s; }
+#planBar .plan + .plan { border-left: 1px solid var(--line); padding-left: 10px; }
+#planBar .plan:hover { color: var(--ink); }
+#planBar .plan.on { color: var(--sage); border-bottom-color: var(--sage); }
+
+/* ---------- 布置模式 ---------- */
+#arrangeBtn.on { background: var(--sage); border-color: var(--sage); color: #F7F5EF; }
+#arrangeBar { position: fixed; left: 24px; bottom: 76px; z-index: 13;
+  display: none; align-items: center; gap: 10px; padding: 8px 10px 8px 16px;
+  background: rgba(250, 247, 240, 0.94); backdrop-filter: blur(10px);
+  border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: 0 8px 26px rgba(58, 53, 46, 0.12); }
+#arrangeBar .hint { font-size: 12px; color: var(--ink-soft); letter-spacing: 0.04em; }
+#arrangeBar button { border: none; background: var(--ink); color: #F9F6EF;
+  padding: 7px 16px; border-radius: 999px; font-size: 12.5px; cursor: pointer; }
+#arrangeBar button:hover { opacity: 0.85; }
+#arrangeBar .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+body.arranging #arrangeBar { display: flex; }
+body.arranging #stage canvas { cursor: grab; }
+body.roaming #arrangeBar, body.roaming #arrangeBtn { display: none; }
+
+/* ---------- 无模式户型（45㎡）：隐藏三态选择，保留时间滑杆 ---------- */
+body.no-modes #modeBar .modes,
+body.no-modes #modeDesc,
+body.no-modes #chooseBtn,
+body.no-modes #question { display: none; }
+
+@media (max-width: 720px) {
+  #planBar .plan { font-size: 11px; }
+  #arrangeBar { left: 12px; bottom: auto; top: 108px; padding-left: 12px; }
+  #arrangeBar .hint { display: none; }
+}
