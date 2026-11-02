@@ -1011,7 +1011,9 @@ function focusModeView(m) {
       for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z));
   // 距离/高度不由固定公式：把关键家具包围盒角点投影到自检相机，
   // 迭代抬升机位直到全部入画（含底部模式面板余量）→ 三种模式距离各不相同
-  const fov = cfg.fov || 40;
+  // 竖屏（手机）水平视角窄、底部模式面板占近半屏：加大 FOV、允许升到墙顶之上俯看，并多留底部余量
+  const portrait = (camera.aspect || 1.6) < 1;
+  const fov = portrait ? Math.max(cfg.fov || 40, 60) : (cfg.fov || 40);
   const tc = camera.clone();
   tc.fov = fov; tc.updateProjectionMatrix();
   const tgt = new THREE.Vector3(c.x, c.y - 0.10, c.z);
@@ -1023,7 +1025,8 @@ function focusModeView(m) {
   const mb = config.modeBounds || { x1: 0.3, x2: PLAN.W - 0.3, z1: 0.3, z2: PLAN.D - 0.3 };
   const px = THREE.MathUtils.clamp(c.x + dx * dh, mb.x1, mb.x2);          // 保持在目标房间内（不被墙遮挡）
   const pz = THREE.MathUtils.clamp(c.z + dz * dh, mb.z1, mb.z2);
-  const yMax = roofOn ? 2.55 : 3.45;                                     // 天花可见时不穿顶
+  const yMax = roofOn ? 2.55 : (portrait ? 8.5 : 3.45);                  // 天花可见时不穿顶
+  const yLow = portrait ? -0.3 : -0.62;
   const fits = (y) => {
     tc.position.set(px, y, pz);
     tc.lookAt(tgt);
@@ -1031,7 +1034,7 @@ function focusModeView(m) {
     for (const k of corners) {
       const v = k.clone().project(tc);
       if (v.z < -1 || v.z > 1) return false;                             // 相机身后
-      if (Math.abs(v.x) > 0.98 || v.y > 0.95 || v.y < -0.62) return false;
+      if (Math.abs(v.x) > 0.98 || v.y > 0.95 || v.y < yLow) return false;
     }
     return true;
   };
@@ -1600,14 +1603,14 @@ const GLB_MAP = {
   tableLamp: 'tableLamp.glb', primaryLamp: 'tableLamp.glb', guestLamp: 'tableLamp.glb',
   deskLamp: 'deskLamp.glb', deskLampA: 'deskLamp.glb',
   pendantLamp: 'pendantLamp.glb', plant: 'plant.glb',
-  bed: 'bed.glb', nightstand: 'nightstand.glb', wardrobe: 'wardrobe.glb',
+  // bed / mode_guest:bed 没有对应 GLB，保留程序化床（避免 404）
+  nightstand: 'nightstand.glb', wardrobe: 'wardrobe.glb',
   coatsCloset: 'coatsCloset.glb', desk: 'desk.glb', officeChair: 'officeChair.glb',
   bookshelf: 'bookshelf.glb', loungeChair: 'loungeChair.glb', laptop: 'laptop.glb',
   lowCabinet: 'lowCabinet.glb', toys: 'toys.glb',
   fridge: 'fridge.glb', washer: 'washer.glb',
   toilet: 'toilet.glb', vanity: 'vanity.glb', mirrorCabinet: 'mirrorCabinet.glb', shower: 'shower.glb',
   // 父组特定覆盖（同一名称在不同模式下对应不同 GLB）
-  'mode_guest:bed': 'bedGuest.glb',
   'mode_future:bed': 'bedKid.glb',
   'mode_future:desk': 'deskKid.glb',
   'mode_guest:wardrobe': 'wardrobeSmall.glb',
