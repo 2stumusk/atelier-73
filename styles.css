@@ -373,3 +373,33 @@ body.placing #stage canvas { cursor: crosshair; }
   #catalogPanel { top: 156px; bottom: auto; max-height: 46vh; left: 10px; width: min(230px, 86vw); }
   .poster-actions { flex-wrap: wrap; justify-content: center; }
 }
+
+/* =====================================================================
+ * 顶栏避让：中等宽度风格栏下移，手机端操作按钮单独成行
+ * ===================================================================== */
+
+/* 风格栏（居中）与右侧操作组在 ~1400px 以下会相撞：改为右对齐放到操作组下方 */
+@media (min-width: 721px) and (max-width: 1400px) {
+  #styleBar { top: 66px; left: auto; right: 24px; transform: translateY(-8px); text-align: right; }
+  #hud.show ~ #styleBar, #styleBar.show { transform: none; }
+  #morePanel { top: 112px; }
+  #tourDots { top: 136px; }
+  #catalogPanel { top: 120px; }
+}
+
+/* 手机：标题一行 + 户型链 + 可横滑的操作按钮行，下方元素整体下移 */
+@media (max-width: 720px) {
+  #hud { flex-wrap: wrap; row-gap: 8px; }
+  .title-block { flex: 1 1 100%; min-width: 0; }
+  .title-block h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #planBar .plan { white-space: nowrap; }
+  .hud-actions { flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .hud-actions::-webkit-scrollbar { display: none; }
+  .hud-actions button, #moreBtn { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 12px; }
+  #viewSeg { top: 116px; }
+  #styleBar { top: 158px; }
+  #morePanel { top: 116px; }
+  #arrangeBar { top: 204px; }
+  #tourDots { top: 204px; }
+  #catalogPanel { top: 252px; max-height: 40vh; }
+}
